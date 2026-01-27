@@ -27,4 +27,8 @@ PULSE_MULTIPLIER_BASE = 2 * 60.0  # 120.0
 CONF_MAC_ADDRESS = "mac_address"
 CONF_PIN = "pin"
 CONF_PULSES_PER_KW = "pulses_per_kw"
+CONF_DEVICE_NAME = "device_name"
+
+# Device name pattern for Emerald devices
+DEVICE_NAME_PREFIX = "ElAdv "
 
