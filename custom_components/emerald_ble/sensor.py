@@ -1,5 +1,4 @@
 """Sensor platform for Emerald Energy Monitor."""
-import asyncio
 import logging
 
 from homeassistant.components.sensor import (
