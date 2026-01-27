@@ -7,7 +7,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfPower
+from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfEnergy
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -29,6 +29,7 @@ async def async_setup_entry(
 
     sensors = [
         EmeraldPowerSensor(device, mac_address),
+        EmeraldEnergySensor(device, mac_address),
         EmeraldBatterySensor(device, mac_address),
     ]
 
@@ -87,6 +88,30 @@ class EmeraldPowerSensor(EmeraldSensorBase):
     def available(self) -> bool:
         """Return True if entity is available."""
         return self._device.is_connected and self._device.power_kw is not None
+
+
+class EmeraldEnergySensor(EmeraldSensorBase):
+    """Sensor for energy consumption."""
+
+    _attr_name = "Energy"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+
+    def __init__(self, device: EmeraldBLEDevice, mac_address: str) -> None:
+        """Initialize the energy sensor."""
+        super().__init__(device, mac_address)
+        self._attr_unique_id = f"{mac_address}_energy"
+
+    @property
+    def native_value(self) -> float:
+        """Return the cumulative energy consumption in kWh."""
+        return self._device.energy_kwh
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self._device.is_connected
 
 
 class EmeraldBatterySensor(EmeraldSensorBase):

@@ -49,6 +49,12 @@ After successful setup, the integration will create the following entities:
   - Unit: kW
   - Updates every 30 seconds (standard for Emerald)
 
+- **Energy Sensor**: Cumulative energy consumption (kWh)
+  - Device Class: Energy
+  - Unit: kWh
+  - Calculated by integrating power over time using Riemann sum approximation
+  - Resets when the integration is reloaded or Home Assistant restarts
+
 - **Battery Sensor**: Battery level of the Emerald device
   - Device Class: Battery
   - Unit: %

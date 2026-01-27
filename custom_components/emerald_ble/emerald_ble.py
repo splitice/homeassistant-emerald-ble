@@ -90,6 +90,8 @@ class EmeraldBLEDevice:
         self._power_kw: float | None = None
         self._battery_level: int | None = None
         self._last_update: datetime | None = None
+        self._energy_kwh: float = 0.0
+        self._last_power_update: datetime | None = None
         
         self._callbacks: list[Callable[[], None]] = []
 
@@ -117,6 +119,11 @@ class EmeraldBLEDevice:
     def last_update(self) -> datetime | None:
         """Return the timestamp of the last data update."""
         return self._last_update
+
+    @property
+    def energy_kwh(self) -> float:
+        """Return the cumulative energy consumption in kWh."""
+        return self._energy_kwh
 
     def register_callback(self, callback: Callable[[], None]) -> None:
         """Register a callback to be called when data is updated."""
@@ -213,8 +220,25 @@ class EmeraldBLEDevice:
                 # Extract power
                 msb = data[-2] << 8
                 total_pulses = msb + data[-1]
-                self._power_kw = total_pulses * self._pulse_multiplier
+                new_power_kw = total_pulses * self._pulse_multiplier
+                
+                # Update energy using Riemann sum approximation
+                # Energy increment = Power × Time (in hours)
+                if self._power_kw is not None and self._last_power_update is not None and timestamp is not None:
+                    time_delta_seconds = (timestamp - self._last_power_update).total_seconds()
+                    if time_delta_seconds > 0:
+                        # Use the previous power value for the interval (left Riemann sum)
+                        time_delta_hours = time_delta_seconds / 3600.0
+                        energy_increment = self._power_kw * time_delta_hours
+                        self._energy_kwh += energy_increment
+                        _LOGGER.debug(
+                            "Energy increment: %.6f kWh (%.2f kW × %.4f h)",
+                            energy_increment, self._power_kw, time_delta_hours
+                        )
+                
+                self._power_kw = new_power_kw
                 self._last_update = timestamp
+                self._last_power_update = timestamp
                 
                 _LOGGER.debug(
                     "Power update: %.2f kW at %s", self._power_kw, timestamp
