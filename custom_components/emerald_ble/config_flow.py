@@ -18,8 +18,8 @@ from .const import (
     CONF_PULSES_PER_KW,
     DEFAULT_PIN,
     DEFAULT_PULSES_PER_KW,
-    DEVICE_NAME_PREFIX,
     DOMAIN,
+    extract_serial_from_name,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,28 +35,13 @@ class EmeraldBLEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovery_info: BluetoothServiceInfoBleak | None = None
         self._discovered_devices: dict[str, BluetoothServiceInfoBleak] = {}
 
-    def _extract_serial_from_name(self, device_name: str | None) -> str | None:
-        """Extract serial number from Emerald device name.
-        
-        Expected format: "ElAdv <SERIAL>" e.g. "ElAdv 210800000000"
-        """
-        if not device_name:
-            return None
-        
-        if device_name.startswith(DEVICE_NAME_PREFIX):
-            serial = device_name[len(DEVICE_NAME_PREFIX):].strip()
-            if serial:
-                return serial
-        
-        return None
-
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> FlowResult:
         """Handle the bluetooth discovery step."""
         # Use device name for unique ID if it matches the Emerald pattern,
         # otherwise fall back to MAC address
-        device_serial = self._extract_serial_from_name(discovery_info.name)
+        device_serial = extract_serial_from_name(discovery_info.name)
         if device_serial:
             unique_id = f"emerald_{device_serial}"
         else:
@@ -79,13 +64,15 @@ class EmeraldBLEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             pin = user_input[CONF_PIN]
             pulses_per_kw = user_input[CONF_PULSES_PER_KW]
 
-            # Get device name if available from discovery info
+            # Get device name - try to get it from the discovered devices for this MAC
             device_name = None
-            if self._discovery_info:
+            if mac_address in self._discovered_devices:
+                device_name = self._discovered_devices[mac_address].name
+            elif self._discovery_info and self._discovery_info.address == mac_address:
                 device_name = self._discovery_info.name
             
             # Use serial-based unique ID if we have a valid device name
-            device_serial = self._extract_serial_from_name(device_name)
+            device_serial = extract_serial_from_name(device_name)
             if device_serial:
                 unique_id = f"emerald_{device_serial}"
                 title = f"Emerald {device_serial}"

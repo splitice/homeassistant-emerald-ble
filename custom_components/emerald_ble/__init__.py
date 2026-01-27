@@ -13,8 +13,8 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_PIN,
     CONF_PULSES_PER_KW,
-    DEVICE_NAME_PREFIX,
     DOMAIN,
+    extract_serial_from_name,
 )
 from .emerald_ble import EmeraldBLEDevice
 
@@ -23,29 +23,11 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
-def extract_serial_from_name(device_name: str | None) -> str | None:
-    """Extract serial number from Emerald device name.
-    
-    Expected format: "ElAdv <SERIAL>" e.g. "ElAdv 210800000000"
-    Returns the serial number or None if the name doesn't match.
-    """
-    if not device_name:
-        return None
-    
-    if device_name.startswith(DEVICE_NAME_PREFIX):
-        serial = device_name[len(DEVICE_NAME_PREFIX):].strip()
-        if serial:
-            return serial
-    
-    return None
-
-
 def find_emerald_device_by_name(hass: HomeAssistant, device_name: str):
     """Find an Emerald BLE device by its name across all discovered devices."""
     _LOGGER.debug("Searching for Emerald device with name: %s", device_name)
     
     for discovery_info in async_discovered_service_info(hass, connectable=True):
-        # Check both the name and advertisement name
         discovered_name = discovery_info.name
         _LOGGER.debug("Checking discovered device: %s (address: %s)", 
                      discovered_name, discovery_info.address)
@@ -81,10 +63,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ble_device = find_emerald_device_by_name(hass, device_name)
         
         if ble_device:
+            new_mac = ble_device.address
             _LOGGER.info(
                 "Found device by name %s at new address: %s (old address was %s)",
-                device_name, ble_device.address, mac_address
+                device_name, new_mac, mac_address
             )
+            # Update the config entry with the new MAC address
+            new_data = dict(entry.data)
+            new_data[CONF_MAC_ADDRESS] = new_mac
+            hass.config_entries.async_update_entry(entry, data=new_data)
+            _LOGGER.debug("Updated config entry with new MAC address: %s", new_mac)
     
     if not ble_device:
         error_msg = f"Could not find Emerald device with address {mac_address}"
