@@ -5,6 +5,7 @@ from typing import Callable
 
 from bleak import BleakClient, BleakError
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import establish_connection
 
 from .const import (
     CHAR_BATTERY_READ_UUID,
@@ -130,8 +131,9 @@ class EmeraldBLEDevice:
         """Connect to the Emerald BLE device."""
         try:
             _LOGGER.debug("Connecting to Emerald device at %s", self.address)
-            self._client = BleakClient(self._ble_device)
-            await self._client.connect()
+            self._client = await establish_connection(
+                BleakClient, self._ble_device, self._ble_device.address
+            )
             self._connected = True
             _LOGGER.info("Connected to Emerald device at %s", self.address)
             
