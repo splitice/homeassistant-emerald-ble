@@ -24,25 +24,33 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Protocol constants
+COMMAND_HEADER_LENGTH = 5
+DATE_FIELD_START = 5
+DATE_FIELD_LENGTH = 4
+TOTAL_HEADER_WITH_DATE_LENGTH = 9
+POWER_NOTIFICATION_LENGTH = 11
+CMD_AUTO_UPLOAD = bytearray([0x00, 0x01, 0x02, 0x0b, 0x01, 0x01])
+
 
 def get_command_from_notify(data: bytearray) -> int:
     """Extract command header from BLE notification data."""
-    if len(data) < 5:
+    if len(data) < COMMAND_HEADER_LENGTH:
         return 0
     
     command_header = 0
-    for i in range(5):
+    for i in range(COMMAND_HEADER_LENGTH):
         command_header += data[i] << (8 * (4 - i))
     return command_header
 
 
 def get_date_from_notify(data: bytearray) -> int:
     """Extract date binary from BLE notification data."""
-    if len(data) < 9:
+    if len(data) < TOTAL_HEADER_WITH_DATE_LENGTH:
         return 0
     
     command_date_bin = 0
-    for i in range(5, 9):
+    for i in range(DATE_FIELD_START, TOTAL_HEADER_WITH_DATE_LENGTH):
         command_date_bin += data[i] << (8 * (8 - i))
     return command_date_bin
 
@@ -184,9 +192,8 @@ class EmeraldBLEDevice:
 
         try:
             # Send auto upload enable command
-            auto_upload_cmd = bytearray([0x00, 0x01, 0x02, 0x0b, 0x01, 0x01])
             await self._client.write_gatt_char(
-                CHAR_TIME_WRITE_UUID, auto_upload_cmd, response=False
+                CHAR_TIME_WRITE_UUID, CMD_AUTO_UPLOAD, response=False
             )
             _LOGGER.debug("Enabled auto upload")
         except BleakError as err:
@@ -196,14 +203,14 @@ class EmeraldBLEDevice:
         """Handle power consumption notifications."""
         _LOGGER.debug("Power notification: %s", data.hex())
         
-        if len(data) < 5:
+        if len(data) < COMMAND_HEADER_LENGTH:
             _LOGGER.warning("Received short notification data")
             return
 
         command_header = get_command_from_notify(data)
         
         if command_header == RESPONSE_30S_POWER:
-            if len(data) == 11:
+            if len(data) == POWER_NOTIFICATION_LENGTH:
                 # Extract date
                 command_date_bin = get_date_from_notify(data)
                 timestamp = decode_emerald_date(command_date_bin)
