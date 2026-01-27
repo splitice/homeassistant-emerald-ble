@@ -11,6 +11,7 @@ from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfEnergy
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import CONF_MAC_ADDRESS, DOMAIN
 from .emerald_ble import EmeraldBLEDevice
@@ -90,7 +91,7 @@ class EmeraldPowerSensor(EmeraldSensorBase):
         return self._device.is_connected and self._device.power_kw is not None
 
 
-class EmeraldEnergySensor(EmeraldSensorBase):
+class EmeraldEnergySensor(EmeraldSensorBase, RestoreEntity):
     """Sensor for energy consumption."""
 
     _attr_name = "Energy"
@@ -102,6 +103,24 @@ class EmeraldEnergySensor(EmeraldSensorBase):
         """Initialize the energy sensor."""
         super().__init__(device, mac_address)
         self._attr_unique_id = f"{mac_address}_energy"
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks and restore state when entity is added."""
+        await super().async_added_to_hass()
+        
+        # Restore previous energy value if available
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state not in (None, "unknown", "unavailable"):
+                try:
+                    restored_energy = float(last_state.state)
+                    self._device.set_energy_kwh(restored_energy)
+                    _LOGGER.info(
+                        "Restored energy value: %.6f kWh", restored_energy
+                    )
+                except (ValueError, TypeError) as err:
+                    _LOGGER.warning(
+                        "Failed to restore energy value: %s", err
+                    )
 
     @property
     def native_value(self) -> float:

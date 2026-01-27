@@ -125,6 +125,10 @@ class EmeraldBLEDevice:
         """Return the cumulative energy consumption in kWh."""
         return self._energy_kwh
 
+    def set_energy_kwh(self, value: float) -> None:
+        """Set the cumulative energy consumption in kWh (for state restoration)."""
+        self._energy_kwh = value
+
     def register_callback(self, callback: Callable[[], None]) -> None:
         """Register a callback to be called when data is updated."""
         self._callbacks.append(callback)
@@ -226,7 +230,9 @@ class EmeraldBLEDevice:
                 # Energy increment = Power × Time (in hours)
                 if self._power_kw is not None and self._last_power_update is not None and timestamp is not None:
                     time_delta_seconds = (timestamp - self._last_power_update).total_seconds()
-                    if time_delta_seconds > 0:
+                    # Only accumulate if time delta is reasonable (between 1s and 3600s)
+                    # This prevents erroneous accumulation from timestamp anomalies
+                    if 0 < time_delta_seconds <= 3600:
                         # Use the previous power value for the interval (left Riemann sum)
                         time_delta_hours = time_delta_seconds / 3600.0
                         energy_increment = self._power_kw * time_delta_hours
@@ -234,6 +240,11 @@ class EmeraldBLEDevice:
                         _LOGGER.debug(
                             "Energy increment: %.6f kWh (%.2f kW × %.4f h)",
                             energy_increment, self._power_kw, time_delta_hours
+                        )
+                    elif time_delta_seconds > 3600:
+                        _LOGGER.warning(
+                            "Skipping energy accumulation due to large time gap: %.1f seconds",
+                            time_delta_seconds
                         )
                 
                 self._power_kw = new_power_kw
