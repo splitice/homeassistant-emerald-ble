@@ -1,5 +1,4 @@
 """BLE communication for Emerald Energy Monitor."""
-import asyncio
 import logging
 from datetime import datetime
 from typing import Callable
@@ -13,13 +12,8 @@ from .const import (
     CHAR_TIME_WRITE_UUID,
     PULSE_MULTIPLIER_BASE,
     RESPONSE_30S_POWER,
-    RESPONSE_DEVICE_TIME,
     RESPONSE_EVERY_30S_POWER,
-    RESPONSE_IMPULSE,
-    RESPONSE_PAIRING_CODE,
     RESPONSE_UPDATED_POWER,
-    SERVICE_BATTERY_UUID,
-    SERVICE_TIME_UUID,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,7 +21,6 @@ _LOGGER = logging.getLogger(__name__)
 # Protocol constants
 COMMAND_HEADER_LENGTH = 5
 DATE_FIELD_START = 5
-DATE_FIELD_LENGTH = 4
 TOTAL_HEADER_WITH_DATE_LENGTH = 9
 POWER_NOTIFICATION_LENGTH = 11
 CMD_AUTO_UPLOAD = bytearray([0x00, 0x01, 0x02, 0x0b, 0x01, 0x01])
