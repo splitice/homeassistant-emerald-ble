@@ -26,6 +26,10 @@ TOTAL_HEADER_WITH_DATE_LENGTH = 9
 POWER_NOTIFICATION_LENGTH = 11
 CMD_AUTO_UPLOAD = bytearray([0x00, 0x01, 0x02, 0x0b, 0x01, 0x01])
 
+# Energy calculation constants
+MAX_TIME_DELTA_SECONDS = 3600  # Maximum time delta for energy accumulation (1 hour)
+LIVE_APPROXIMATION_TIMEOUT = 60  # Stop approximating after 60 seconds without update
+
 
 def get_command_from_notify(data: bytearray) -> int:
     """Extract command header from BLE notification data."""
@@ -90,6 +94,9 @@ class EmeraldBLEDevice:
         self._power_kw: float | None = None
         self._battery_level: int | None = None
         self._last_update: datetime | None = None
+        self._energy_kwh: float = 0.0
+        self._last_power_update: datetime | None = None
+        self._last_actual_reading_time: datetime | None = None
         
         self._callbacks: list[Callable[[], None]] = []
 
@@ -117,6 +124,37 @@ class EmeraldBLEDevice:
     def last_update(self) -> datetime | None:
         """Return the timestamp of the last data update."""
         return self._last_update
+
+    @property
+    def energy_kwh(self) -> float:
+        """Return the cumulative energy consumption in kWh."""
+        return self._get_live_energy()
+
+    def _get_live_energy(self) -> float:
+        """Get live energy with approximation between readings."""
+        base_energy = self._energy_kwh
+        
+        # If we don't have power data yet, return base energy
+        if self._power_kw is None or self._last_actual_reading_time is None:
+            return base_energy
+        
+        # Calculate time since last actual reading
+        now = datetime.now()
+        time_since_reading = (now - self._last_actual_reading_time).total_seconds()
+        
+        # Stop approximating after timeout (60 seconds)
+        if time_since_reading > LIVE_APPROXIMATION_TIMEOUT:
+            return base_energy
+        
+        # Add live approximation using current power
+        time_delta_hours = time_since_reading / 3600.0
+        live_energy_increment = self._power_kw * time_delta_hours
+        
+        return base_energy + live_energy_increment
+
+    def set_energy_kwh(self, value: float) -> None:
+        """Set the cumulative energy consumption in kWh (for state restoration)."""
+        self._energy_kwh = value
 
     def register_callback(self, callback: Callable[[], None]) -> None:
         """Register a callback to be called when data is updated."""
@@ -213,8 +251,28 @@ class EmeraldBLEDevice:
                 # Extract power
                 msb = data[-2] << 8
                 total_pulses = msb + data[-1]
-                self._power_kw = total_pulses * self._pulse_multiplier
+                new_power_kw = total_pulses * self._pulse_multiplier
+                
+                # When actual reading arrives, correct the energy baseline
+                # by incorporating any live approximation that was happening
+                if self._last_actual_reading_time is not None and timestamp is not None:
+                    time_since_reading = (timestamp - self._last_actual_reading_time).total_seconds()
+                    # Only correct if within approximation timeout
+                    if self._power_kw is not None and 0 < time_since_reading <= LIVE_APPROXIMATION_TIMEOUT:
+                        # Calculate what was approximated
+                        time_delta_hours = time_since_reading / 3600.0
+                        actual_energy_increment = self._power_kw * time_delta_hours
+                        self._energy_kwh += actual_energy_increment
+                        _LOGGER.debug(
+                            "Correcting energy with actual reading: %.6f kWh (%.2f kW × %.4f h)",
+                            actual_energy_increment, self._power_kw, time_delta_hours
+                        )
+                
+                # Update power and timestamps
+                self._power_kw = new_power_kw
                 self._last_update = timestamp
+                self._last_power_update = timestamp
+                self._last_actual_reading_time = datetime.now()  # Use current time for approximation
                 
                 _LOGGER.debug(
                     "Power update: %.2f kW at %s", self._power_kw, timestamp
