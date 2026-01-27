@@ -26,6 +26,9 @@ TOTAL_HEADER_WITH_DATE_LENGTH = 9
 POWER_NOTIFICATION_LENGTH = 11
 CMD_AUTO_UPLOAD = bytearray([0x00, 0x01, 0x02, 0x0b, 0x01, 0x01])
 
+# Energy calculation constants
+MAX_TIME_DELTA_SECONDS = 3600  # Maximum time delta for energy accumulation (1 hour)
+
 
 def get_command_from_notify(data: bytearray) -> int:
     """Extract command header from BLE notification data."""
@@ -232,7 +235,7 @@ class EmeraldBLEDevice:
                     time_delta_seconds = (timestamp - self._last_power_update).total_seconds()
                     # Only accumulate if time delta is reasonable (between 1s and 3600s)
                     # This prevents erroneous accumulation from timestamp anomalies
-                    if 0 < time_delta_seconds <= 3600:
+                    if 0 < time_delta_seconds <= MAX_TIME_DELTA_SECONDS:
                         # Use the previous power value for the interval (left Riemann sum)
                         time_delta_hours = time_delta_seconds / 3600.0
                         energy_increment = self._power_kw * time_delta_hours
@@ -241,7 +244,7 @@ class EmeraldBLEDevice:
                             "Energy increment: %.6f kWh (%.2f kW × %.4f h)",
                             energy_increment, self._power_kw, time_delta_hours
                         )
-                    elif time_delta_seconds > 3600:
+                    elif time_delta_seconds > MAX_TIME_DELTA_SECONDS:
                         _LOGGER.warning(
                             "Skipping energy accumulation due to large time gap: %.1f seconds",
                             time_delta_seconds
