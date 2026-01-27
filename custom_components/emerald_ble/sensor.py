@@ -1,4 +1,5 @@
 """Sensor platform for Emerald Energy Monitor."""
+import asyncio
 import logging
 
 from homeassistant.components.sensor import (
@@ -11,12 +12,17 @@ from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfEnergy
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
+from datetime import timedelta
 
 from .const import CONF_MAC_ADDRESS, DOMAIN
 from .emerald_ble import EmeraldBLEDevice
 
 _LOGGER = logging.getLogger(__name__)
+
+# Update interval for live energy approximation
+ENERGY_UPDATE_INTERVAL = timedelta(seconds=2)
 
 
 async def async_setup_entry(
@@ -103,6 +109,7 @@ class EmeraldEnergySensor(EmeraldSensorBase, RestoreEntity):
         """Initialize the energy sensor."""
         super().__init__(device, mac_address)
         self._attr_unique_id = f"{mac_address}_energy"
+        self._remove_update_interval = None
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks and restore state when entity is added."""
@@ -121,6 +128,23 @@ class EmeraldEnergySensor(EmeraldSensorBase, RestoreEntity):
                     _LOGGER.warning(
                         "Failed to restore energy value: %s", err
                     )
+
+        # Set up periodic updates for live energy approximation
+        self._remove_update_interval = async_track_time_interval(
+            self.hass, self._async_update_energy, ENERGY_UPDATE_INTERVAL
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up when entity is removed."""
+        await super().async_will_remove_from_hass()
+        if self._remove_update_interval:
+            self._remove_update_interval()
+
+    @callback
+    def _async_update_energy(self, now) -> None:
+        """Update energy sensor with live approximation."""
+        # This triggers a state update, which will call native_value
+        self.async_write_ha_state()
 
     @property
     def native_value(self) -> float:

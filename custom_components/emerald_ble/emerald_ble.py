@@ -28,6 +28,7 @@ CMD_AUTO_UPLOAD = bytearray([0x00, 0x01, 0x02, 0x0b, 0x01, 0x01])
 
 # Energy calculation constants
 MAX_TIME_DELTA_SECONDS = 3600  # Maximum time delta for energy accumulation (1 hour)
+LIVE_APPROXIMATION_TIMEOUT = 60  # Stop approximating after 60 seconds without update
 
 
 def get_command_from_notify(data: bytearray) -> int:
@@ -95,6 +96,7 @@ class EmeraldBLEDevice:
         self._last_update: datetime | None = None
         self._energy_kwh: float = 0.0
         self._last_power_update: datetime | None = None
+        self._last_actual_reading_time: datetime | None = None
         
         self._callbacks: list[Callable[[], None]] = []
 
@@ -126,7 +128,29 @@ class EmeraldBLEDevice:
     @property
     def energy_kwh(self) -> float:
         """Return the cumulative energy consumption in kWh."""
-        return self._energy_kwh
+        return self._get_live_energy()
+
+    def _get_live_energy(self) -> float:
+        """Get live energy with approximation between readings."""
+        base_energy = self._energy_kwh
+        
+        # If we don't have power data yet, return base energy
+        if self._power_kw is None or self._last_actual_reading_time is None:
+            return base_energy
+        
+        # Calculate time since last actual reading
+        now = datetime.now()
+        time_since_reading = (now - self._last_actual_reading_time).total_seconds()
+        
+        # Stop approximating after timeout (60 seconds)
+        if time_since_reading > LIVE_APPROXIMATION_TIMEOUT:
+            return base_energy
+        
+        # Add live approximation using current power
+        time_delta_hours = time_since_reading / 3600.0
+        live_energy_increment = self._power_kw * time_delta_hours
+        
+        return base_energy + live_energy_increment
 
     def set_energy_kwh(self, value: float) -> None:
         """Set the cumulative energy consumption in kWh (for state restoration)."""
@@ -229,30 +253,26 @@ class EmeraldBLEDevice:
                 total_pulses = msb + data[-1]
                 new_power_kw = total_pulses * self._pulse_multiplier
                 
-                # Update energy using Riemann sum approximation
-                # Energy increment = Power × Time (in hours)
-                if self._power_kw is not None and self._last_power_update is not None and timestamp is not None:
-                    time_delta_seconds = (timestamp - self._last_power_update).total_seconds()
-                    # Only accumulate if time delta is reasonable (between 1s and 3600s)
-                    # This prevents erroneous accumulation from timestamp anomalies
-                    if 0 < time_delta_seconds <= MAX_TIME_DELTA_SECONDS:
-                        # Use the previous power value for the interval (left Riemann sum)
-                        time_delta_hours = time_delta_seconds / 3600.0
-                        energy_increment = self._power_kw * time_delta_hours
-                        self._energy_kwh += energy_increment
+                # When actual reading arrives, correct the energy baseline
+                # by incorporating any live approximation that was happening
+                if self._last_actual_reading_time is not None and timestamp is not None:
+                    time_since_reading = (timestamp - self._last_actual_reading_time).total_seconds()
+                    # Only correct if within approximation timeout
+                    if self._power_kw is not None and 0 < time_since_reading <= LIVE_APPROXIMATION_TIMEOUT:
+                        # Calculate what was approximated
+                        time_delta_hours = time_since_reading / 3600.0
+                        actual_energy_increment = self._power_kw * time_delta_hours
+                        self._energy_kwh += actual_energy_increment
                         _LOGGER.debug(
-                            "Energy increment: %.6f kWh (%.2f kW × %.4f h)",
-                            energy_increment, self._power_kw, time_delta_hours
-                        )
-                    elif time_delta_seconds > MAX_TIME_DELTA_SECONDS:
-                        _LOGGER.warning(
-                            "Skipping energy accumulation due to large time gap: %.1f seconds",
-                            time_delta_seconds
+                            "Correcting energy with actual reading: %.6f kWh (%.2f kW × %.4f h)",
+                            actual_energy_increment, self._power_kw, time_delta_hours
                         )
                 
+                # Update power and timestamps
                 self._power_kw = new_power_kw
                 self._last_update = timestamp
                 self._last_power_update = timestamp
+                self._last_actual_reading_time = datetime.now()  # Use current time for approximation
                 
                 _LOGGER.debug(
                     "Power update: %.2f kW at %s", self._power_kw, timestamp

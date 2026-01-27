@@ -53,6 +53,9 @@ After successful setup, the integration will create the following entities:
   - Device Class: Energy
   - Unit: kWh
   - Calculated by integrating power over time using Riemann sum approximation
+  - Live approximation updates every 2 seconds between actual readings
+  - Corrected by actual BLE readings (every 30 seconds)
+  - Stops approximating after 60 seconds without new readings
   - Persists across Home Assistant restarts
 
 - **Battery Sensor**: Battery level of the Emerald device
