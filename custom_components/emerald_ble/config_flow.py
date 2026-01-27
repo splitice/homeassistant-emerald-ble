@@ -13,11 +13,13 @@ from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
     CONF_MAC_ADDRESS,
+    CONF_DEVICE_NAME,
     CONF_PIN,
     CONF_PULSES_PER_KW,
     DEFAULT_PIN,
     DEFAULT_PULSES_PER_KW,
     DOMAIN,
+    extract_serial_from_name,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +39,15 @@ class EmeraldBLEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> FlowResult:
         """Handle the bluetooth discovery step."""
-        await self.async_set_unique_id(discovery_info.address)
+        # Use device name for unique ID if it matches the Emerald pattern,
+        # otherwise fall back to MAC address
+        device_serial = extract_serial_from_name(discovery_info.name)
+        if device_serial:
+            unique_id = f"emerald_{device_serial}"
+        else:
+            unique_id = discovery_info.address
+        
+        await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
         
         self._discovery_info = discovery_info
@@ -54,16 +64,44 @@ class EmeraldBLEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             pin = user_input[CONF_PIN]
             pulses_per_kw = user_input[CONF_PULSES_PER_KW]
 
-            await self.async_set_unique_id(mac_address)
+            # Get device name - try to get it from the discovered devices for this MAC
+            device_name = None
+            if mac_address in self._discovered_devices:
+                device_name = self._discovered_devices[mac_address].name
+            elif self._discovery_info and self._discovery_info.address == mac_address:
+                device_name = self._discovery_info.name
+            else:
+                # For manually entered MAC, try to find it in all discovered devices
+                for discovery_info in async_discovered_service_info(self.hass, False):
+                    if discovery_info.address.upper() == mac_address.upper():
+                        device_name = discovery_info.name
+                        break
+            
+            # Use serial-based unique ID if we have a valid device name
+            device_serial = extract_serial_from_name(device_name)
+            if device_serial:
+                unique_id = f"emerald_{device_serial}"
+                title = f"Emerald {device_serial}"
+            else:
+                unique_id = mac_address
+                title = f"Emerald {mac_address[-8:]}"
+
+            await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
 
+            config_data = {
+                CONF_MAC_ADDRESS: mac_address,
+                CONF_PIN: pin,
+                CONF_PULSES_PER_KW: pulses_per_kw,
+            }
+            
+            # Store device name if available for fallback lookup
+            if device_name:
+                config_data[CONF_DEVICE_NAME] = device_name
+
             return self.async_create_entry(
-                title=f"Emerald {mac_address[-8:]}",
-                data={
-                    CONF_MAC_ADDRESS: mac_address,
-                    CONF_PIN: pin,
-                    CONF_PULSES_PER_KW: pulses_per_kw,
-                },
+                title=title,
+                data=config_data,
             )
 
         # Get discovered bluetooth devices

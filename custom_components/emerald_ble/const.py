@@ -27,4 +27,26 @@ PULSE_MULTIPLIER_BASE = 2 * 60.0  # 120.0
 CONF_MAC_ADDRESS = "mac_address"
 CONF_PIN = "pin"
 CONF_PULSES_PER_KW = "pulses_per_kw"
+CONF_DEVICE_NAME = "device_name"
+
+# Device name pattern for Emerald devices
+DEVICE_NAME_PREFIX = "ElAdv "
+
+
+def extract_serial_from_name(device_name: str | None) -> str | None:
+    """Extract serial number from Emerald device name.
+    
+    Expected format: "ElAdv <SERIAL>" e.g. "ElAdv 210800000000"
+    Returns the serial number or None if the name doesn't match.
+    """
+    if not device_name:
+        return None
+    
+    if device_name.startswith(DEVICE_NAME_PREFIX):
+        serial = device_name[len(DEVICE_NAME_PREFIX):].strip()
+        if serial:
+            return serial
+    
+    return None
+
 
