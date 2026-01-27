@@ -70,6 +70,12 @@ class EmeraldBLEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 device_name = self._discovered_devices[mac_address].name
             elif self._discovery_info and self._discovery_info.address == mac_address:
                 device_name = self._discovery_info.name
+            else:
+                # For manually entered MAC, try to find it in all discovered devices
+                for discovery_info in async_discovered_service_info(self.hass, False):
+                    if discovery_info.address.upper() == mac_address.upper():
+                        device_name = discovery_info.name
+                        break
             
             # Use serial-based unique ID if we have a valid device name
             device_serial = extract_serial_from_name(device_name)

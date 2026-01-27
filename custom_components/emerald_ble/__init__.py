@@ -24,15 +24,23 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
 def find_emerald_device_by_name(hass: HomeAssistant, device_name: str):
-    """Find an Emerald BLE device by its name across all discovered devices."""
+    """Find an Emerald BLE device by its name across all discovered devices.
+    
+    Returns:
+        BLEDevice if found, None otherwise
+    """
     _LOGGER.debug("Searching for Emerald device with name: %s", device_name)
+    
+    # Normalize the search name for robust matching
+    normalized_search_name = device_name.strip()
     
     for discovery_info in async_discovered_service_info(hass, connectable=True):
         discovered_name = discovery_info.name
         _LOGGER.debug("Checking discovered device: %s (address: %s)", 
                      discovered_name, discovery_info.address)
         
-        if discovered_name == device_name:
+        # Normalize discovered name and compare
+        if discovered_name and discovered_name.strip() == normalized_search_name:
             _LOGGER.info("Found Emerald device by name: %s at address %s", 
                         device_name, discovery_info.address)
             return discovery_info.device
@@ -63,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ble_device = find_emerald_device_by_name(hass, device_name)
         
         if ble_device:
-            new_mac = ble_device.address
+            new_mac = ble_device.address.upper()
             _LOGGER.info(
                 "Found device by name %s at new address: %s (old address was %s)",
                 device_name, new_mac, mac_address
