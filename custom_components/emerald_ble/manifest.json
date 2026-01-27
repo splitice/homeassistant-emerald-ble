@@ -1,0 +1,10 @@
+{
+  "domain": "emerald_ble",
+  "name": "Emerald Energy Monitor",
+  "version": "1.0.0",
+  "documentation": "https://github.com/splitice/homeassistant-emerald-ble",
+  "requirements": ["bleak>=0.20.0", "bleak-retry-connector>=3.1.0"],
+  "codeowners": ["@splitice"],
+  "iot_class": "local_push",
+  "config_flow": true
+}
