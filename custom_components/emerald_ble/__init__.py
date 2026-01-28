@@ -34,15 +34,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     # Create the device instance
-    device = EmeraldBLEDevice(ble_device, pin, pulses_per_kw)
+    device = EmeraldBLEDevice(hass, ble_device, pin, pulses_per_kw)
     
-    # Try to connect
-    if not await device.connect():
-        raise ConfigEntryNotReady(f"Failed to connect to device {mac_address}")
-
     # Store the device in hass.data
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = device
+
+    # Start the device (will register advertisement callback and wait for connection opportunity)
+    await device.start()
 
     # Forward the setup to the sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -56,6 +55,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     if unload_ok:
         device: EmeraldBLEDevice = hass.data[DOMAIN].pop(entry.entry_id)
-        await device.disconnect()
+        await device.stop()
 
     return unload_ok
