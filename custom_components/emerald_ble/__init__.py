@@ -4,7 +4,7 @@ import logging
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import CONF_MAC_ADDRESS, CONF_PIN, CONF_PULSES_PER_KW, DOMAIN
