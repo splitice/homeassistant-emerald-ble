@@ -1,4 +1,5 @@
 """BLE communication for Emerald Energy Monitor."""
+import asyncio
 import logging
 from datetime import datetime
 from typing import Callable
@@ -6,6 +7,9 @@ from typing import Callable
 from bleak import BleakClient, BleakError
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
+
+from homeassistant.components import bluetooth
+from homeassistant.core import HomeAssistant, callback
 
 from .const import (
     CHAR_BATTERY_READ_UUID,
@@ -77,11 +81,13 @@ class EmeraldBLEDevice:
 
     def __init__(
         self,
+        hass: HomeAssistant,
         ble_device: BLEDevice,
         pin: int,
         pulses_per_kw: int,
     ) -> None:
         """Initialize the Emerald BLE device."""
+        self._hass = hass
         self._ble_device = ble_device
         self._pin = pin
         self._pulses_per_kw = pulses_per_kw
@@ -99,6 +105,11 @@ class EmeraldBLEDevice:
         self._last_actual_reading_time: datetime | None = None
         
         self._callbacks: list[Callable[[], None]] = []
+        
+        # Advertisement tracking
+        self._advertisement_callback_cancel: Callable[[], None] | None = None
+        self._connection_task: asyncio.Task | None = None
+        self._reconnect_lock = asyncio.Lock()
 
     @property
     def address(self) -> str:
@@ -165,6 +176,80 @@ class EmeraldBLEDevice:
         if callback in self._callbacks:
             self._callbacks.remove(callback)
 
+    async def start(self) -> None:
+        """Start the device by registering for advertisement callbacks."""
+        _LOGGER.debug("Starting Emerald device at %s", self.address)
+        
+        # Register callback to receive advertisements
+        self._advertisement_callback_cancel = bluetooth.async_register_callback(
+            self._hass,
+            self._handle_advertisement,
+            {"address": self._ble_device.address},
+            bluetooth.BluetoothScanningMode.ACTIVE,
+        )
+        _LOGGER.info("Registered for advertisements from %s", self.address)
+
+    async def stop(self) -> None:
+        """Stop the device and clean up resources."""
+        _LOGGER.debug("Stopping Emerald device at %s", self.address)
+        
+        # Cancel advertisement callback
+        if self._advertisement_callback_cancel:
+            self._advertisement_callback_cancel()
+            self._advertisement_callback_cancel = None
+        
+        # Cancel any pending connection task
+        if self._connection_task and not self._connection_task.done():
+            self._connection_task.cancel()
+            try:
+                await self._connection_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Disconnect from device
+        await self.disconnect()
+
+    @callback
+    def _handle_advertisement(
+        self, service_info: bluetooth.BluetoothServiceInfoBleak, change: bluetooth.BluetoothChange
+    ) -> None:
+        """Handle advertisement from the device."""
+        _LOGGER.debug(
+            "Advertisement received from %s, change: %s", 
+            self.address, change
+        )
+        
+        # Update the BLE device with latest info
+        self._ble_device = service_info.device
+        
+        # If we're already connected, nothing to do
+        if self._connected:
+            return
+        
+        # If there's already a connection attempt in progress, don't start another
+        if self._connection_task and not self._connection_task.done():
+            _LOGGER.debug("Connection attempt already in progress")
+            return
+        
+        # Start connection attempt when we see an advertisement
+        _LOGGER.info("Advertisement seen from %s, attempting connection", self.address)
+        self._connection_task = asyncio.create_task(self._connect_with_retry())
+
+    async def _connect_with_retry(self) -> None:
+        """Attempt to connect to the device with retry logic."""
+        async with self._reconnect_lock:
+            # Double-check we're not already connected (race condition guard)
+            if self._connected:
+                return
+            
+            try:
+                await self.connect()
+            except Exception as err:
+                _LOGGER.warning(
+                    "Failed to connect to %s after advertisement: %s",
+                    self.address, err
+                )
+
     async def connect(self) -> bool:
         """Connect to the Emerald BLE device."""
         try:
@@ -197,6 +282,10 @@ class EmeraldBLEDevice:
             finally:
                 self._connected = False
                 self._authenticated = False
+                _LOGGER.info(
+                    "Disconnected from %s, will reconnect on next advertisement",
+                    self.address
+                )
 
     async def _subscribe_to_notifications(self) -> None:
         """Subscribe to BLE notifications."""
